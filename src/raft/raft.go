@@ -23,7 +23,9 @@ import "labrpc"
 // import "bytes"
 // import "encoding/gob"
 
-
+// TODO: To heartbeats, need to define AppendEntries struct
+// TODO: Also need to implement AppendEntries RPC handler
+// TODO: Make sure the election timeouts DON'T always fire at the same time
 
 //
 // as each Raft peer becomes aware that successive log entries are
@@ -90,14 +92,12 @@ func (rf *Raft) readPersist(data []byte) {
 	// d.Decode(&rf.yyy)
 }
 
-
-
-
 //
 // example RequestVote RPC arguments structure.
 //
 type RequestVoteArgs struct {
 	// Your data here.
+	// TODO:
 }
 
 //
@@ -112,6 +112,7 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here.
+	// TODO: Implement it so that servers will vote for one another
 }
 
 //
@@ -136,7 +137,6 @@ func (rf *Raft) sendRequestVote(server int, args RequestVoteArgs, reply *Request
 	return ok
 }
 
-
 //
 // the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
@@ -154,7 +154,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index := -1
 	term := -1
 	isLeader := true
-
 
 	return index, term, isLeader
 }
@@ -188,10 +187,11 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here.
+	// TODO: Modify Make() to create a background goroutine
+	// TODO: that starts an election by sending out RequestVote RPC when it hasn't heard from another peer for a while
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
-
 
 	return rf
 }

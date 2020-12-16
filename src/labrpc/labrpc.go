@@ -57,6 +57,7 @@ import "strings"
 import "math/rand"
 import "time"
 
+// Request Message 请求消息
 type reqMsg struct {
 	endname  interface{} // name of sending ClientEnd
 	svcMeth  string      // e.g. "Raft.AppendEntries"
@@ -85,14 +86,14 @@ func (e *ClientEnd) Call(svcMeth string, args interface{}, reply interface{}) bo
 	req.argsType = reflect.TypeOf(args)
 	req.replyCh = make(chan replyMsg)
 
-	qb := new(bytes.Buffer)
-	qe := gob.NewEncoder(qb)
+	qb := new(bytes.Buffer)  // TODO: new分配内存后有啥用
+	qe := gob.NewEncoder(qb) // TODO: qe的作用是啥
 	qe.Encode(args)
 	req.args = qb.Bytes()
 
 	e.ch <- req
 
-	rep := <-req.replyCh
+	rep := <-req.replyCh // request的reply，请求的回复
 	if rep.ok {
 		rb := bytes.NewBuffer(rep.reply)
 		rd := gob.NewDecoder(rb)
@@ -138,7 +139,7 @@ func MakeNetwork() *Network {
 
 func (rn *Network) Reliable(yes bool) {
 	rn.mu.Lock()
-	defer rn.mu.Unlock()
+	defer rn.mu.Unlock() // defer：在函数返回前执行
 
 	rn.reliable = yes
 }
@@ -187,12 +188,13 @@ func (rn *Network) ProcessReq(req reqMsg) {
 	enabled, servername, server, reliable, longreordering := rn.ReadEndnameInfo(req.endname)
 
 	if enabled && servername != nil && server != nil {
+		// 考虑不可靠网络，则可能会导致网络延迟
 		if reliable == false {
 			// short delay
 			ms := (rand.Int() % 27)
 			time.Sleep(time.Duration(ms) * time.Millisecond)
 		}
-
+		// 甚至是丢包
 		if reliable == false && (rand.Int()%1000) < 100 {
 			// drop the request, return as if timeout
 			req.replyCh <- replyMsg{false, nil}
@@ -215,6 +217,9 @@ func (rn *Network) ProcessReq(req reqMsg) {
 		var reply replyMsg
 		replyOK := false
 		serverDead := false
+
+		// 实际上是while语句，当未收到回复且server存活时不断监听数据,
+		// select语句会阻塞直到某种情况满足
 		for replyOK == false && serverDead == false {
 			select {
 			case reply = <-ech:
@@ -224,6 +229,7 @@ func (rn *Network) ProcessReq(req reqMsg) {
 			}
 		}
 
+		// TODO：这里的 Persister 是什么意思
 		// do not reply if DeleteServer() has been called, i.e.
 		// the server has been killed. this is needed to avoid
 		// situation in which a client gets a positive reply
@@ -237,9 +243,11 @@ func (rn *Network) ProcessReq(req reqMsg) {
 			req.replyCh <- replyMsg{false, nil}
 		} else if reliable == false && (rand.Int()%1000) < 100 {
 			// drop the reply, return as if timeout
+			// 模拟超时
 			req.replyCh <- replyMsg{false, nil}
 		} else if longreordering == true && rand.Intn(900) < 600 {
 			// delay the response for a while
+			// 模拟延迟导致的乱序网络
 			ms := 200 + rand.Intn(1+rand.Intn(2000))
 			time.Sleep(time.Duration(ms) * time.Millisecond)
 			req.replyCh <- reply
@@ -270,6 +278,7 @@ func (rn *Network) MakeEnd(endname interface{}) *ClientEnd {
 	rn.mu.Lock()
 	defer rn.mu.Unlock()
 
+	// TODO： 这里是什么意思
 	if _, ok := rn.ends[endname]; ok {
 		log.Fatalf("MakeEnd: %v already exists\n", endname)
 	}
@@ -300,6 +309,7 @@ func (rn *Network) DeleteServer(servername interface{}) {
 
 // connect a ClientEnd to a server.
 // a ClientEnd can only be connected once in its lifetime.
+// 一个client在其生命周期中只能连接上一个server
 func (rn *Network) Connect(endname interface{}, servername interface{}) {
 	rn.mu.Lock()
 	defer rn.mu.Unlock()
@@ -347,6 +357,7 @@ func (rs *Server) AddService(svc *Service) {
 	rs.services[svc.name] = svc
 }
 
+// 分发服务
 func (rs *Server) dispatch(req reqMsg) replyMsg {
 	rs.mu.Lock()
 

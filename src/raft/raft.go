@@ -39,6 +39,11 @@ type ApplyMsg struct {
 	Snapshot    []byte // ignore for lab2; only used in lab3
 }
 
+type LogEntry struct {
+	Command interface{} // 状态机的命令
+	Term    int         // log entry的term
+}
+
 //
 // A Go object implementing a single Raft peer.
 //
@@ -52,6 +57,42 @@ type Raft struct {
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
+	// Persistent state on all servers
+	// TODO Update on stable storage before responding to RPCS
+	currentTerm int // server 最后看到的term
+	votedFor    int // TODO
+	log         []LogEntry
+
+	// Volatile state on all servers
+	commitIndex int // committed的最大的log entry index
+	lastApplied int // 应用到状态机的最大的log entry index
+
+	// Volatile state on leaders
+	// TODO Reinitialized after election
+	nextIndex  []int // To send, 对每个server，下一个要发送的log entry的序号， 初始化为 leader last log index+1 TODO: 初始化？
+	matchIndex []int // To replicated，对每个server，已知的最高的已经复制成功的序号
+
+	// Self defined
+	isLeader bool
+	state    string // leader, follower, candidate TODO: Enum?
+}
+
+// FIXME: Self-Defined
+// Rules for Servers
+func (rf *Raft) AllServersRules() {
+	// TODO:
+}
+
+func (rf *Raft) FollowerRules() {
+	// TODO:
+}
+
+func (rf *Raft) CandidateRules() {
+	// TODO:
+}
+
+func (rf *Raft) LeaderRules() {
+	// TODO:
 }
 
 // return currentTerm and whether this server
@@ -61,6 +102,9 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here.
+	term = rf.currentTerm
+	isleader = rf.isLeader
+
 	return term, isleader
 }
 
@@ -92,12 +136,44 @@ func (rf *Raft) readPersist(data []byte) {
 	// d.Decode(&rf.yyy)
 }
 
+type AppendEntriesArgs struct {
+	// TODO:
+	Term         int   // 领导者的term
+	LeaderId     int   // 领导者的ID，
+	PrevLogIndex int   // 在append新log entry前的log index
+	PrevLogTerm  int   // 在append新log entry前的log index下的term
+	Entries      []int // 要append log entries TODO: 如果是空的用来heartbeats
+	LeaderCommit int   // 领导者的commitIndex
+
+}
+
+type AppendEntriesReply struct {
+	// TODO:
+	Term    int  //
+	success bool // 成功，if follower contained entry matching prevLogIndex and prevLogTerm TODO: 最后一个匹配还是有匹配然后截断
+}
+
+// AppendEntries RPC handler.
+func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply) {
+	// TODO:
+
+}
+
+func (rf *Raft) sendAppendEntries(server int, args AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	return ok
+}
+
 //
 // example RequestVote RPC arguments structure.
 //
 type RequestVoteArgs struct {
 	// Your data here.
 	// TODO:
+	Term         int // 候选人的term
+	CandidatedId int // 候选人的ID
+	LastLogIndex int // 候选人日志中最后一条的序号
+	LastLogTerm  int // 候选人日志中最后一条的term
 }
 
 //
@@ -105,6 +181,9 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here.
+	// TODO:
+	Term        int  // 当前的term，用于使候选人更新状态
+	VoteGranted bool // 若为真，则表示候选人接受了投票
 }
 
 //
@@ -113,6 +192,12 @@ type RequestVoteReply struct {
 func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here.
 	// TODO: Implement it so that servers will vote for one another
+	// TODO: return false if currentTerm > term(received)
+	if rf.currentTerm > args.Term {
+		reply.VoteGranted = false
+	}
+	// TODO:
+
 }
 
 //
@@ -168,6 +253,10 @@ func (rf *Raft) Kill() {
 	// Your code here, if desired.
 }
 
+func (rf *Raft) Waitng() {
+	// TODO:
+}
+
 //
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
@@ -187,8 +276,11 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here.
-	// TODO: Modify Make() to create a background goroutine
-	// TODO: that starts an election by sending out RequestVote RPC when it hasn't heard from another peer for a while
+	// TODO: Modify Make() to create a background goroutine that starts an election by sending out RequestVote RPC when it hasn't heard from another peer for a while
+
+	// Sever启动时，是follower状态。 若收到来自leader或者candidate的有效PRC，就持续保持follower状态。
+	rf.state = "follower"
+	// TODO: 等待 election timeout
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())

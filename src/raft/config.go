@@ -30,14 +30,14 @@ type config struct {
 	mu        sync.Mutex
 	t         *testing.T
 	net       *labrpc.Network
-	n         int
+	n         int   // 配置中的server数
 	done      int32 // tell internal threads to die
 	rafts     []*Raft
 	applyErr  []string // from apply channel readers
 	connected []bool   // whether each server is on the net
 	saved     []*Persister
 	endnames  [][]string    // the port file names each sends to
-	logs      []map[int]int // copy of each server's committed entries
+	logs      []map[int]int // copy of each server's committed entries 每个服务器中提交的log的拷贝
 }
 
 func make_config(t *testing.T, n int, unreliable bool) *config {
@@ -110,16 +110,20 @@ func (cfg *config) crash1(i int) {
 // this server. since we cannot really kill it.
 //
 func (cfg *config) start1(i int) {
+	// 如果i上的raft服务已经启动了，就先停止
 	cfg.crash1(i)
 
 	// a fresh set of outgoing ClientEnd names.
 	// so that old crashed instance's ClientEnds can't send.
+	// 新的outgoing客户端名，使得旧的crashed的客户端实例不会发送
+	// TODO：搞清楚这里的 endnames 含义
 	cfg.endnames[i] = make([]string, cfg.n)
 	for j := 0; j < cfg.n; j++ {
 		cfg.endnames[i][j] = randstring(20)
 	}
 
 	// a fresh set of ClientEnds.
+	// 一个全新的客户端集合
 	ends := make([]*labrpc.ClientEnd, cfg.n)
 	for j := 0; j < cfg.n; j++ {
 		ends[j] = cfg.net.MakeEnd(cfg.endnames[i][j])
@@ -264,6 +268,7 @@ func (cfg *config) checkOneLeader() int {
 		for i := 0; i < cfg.n; i++ {
 			if cfg.connected[i] {
 				if t, leader := cfg.rafts[i].GetState(); leader {
+					// t：currentTerm，leader：是否时leader
 					leaders[t] = append(leaders[t], i)
 				}
 			}

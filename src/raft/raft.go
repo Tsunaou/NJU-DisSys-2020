@@ -17,8 +17,12 @@ package raft
 //   in the same server.
 //
 
-import "sync"
+import (
+	"math/rand"
+	"sync"
+)
 import "labrpc"
+import "time"
 
 // import "bytes"
 // import "encoding/gob"
@@ -27,7 +31,19 @@ import "labrpc"
 // TODO: Also need to implement AppendEntries RPC handler
 // TODO: Make sure the election timeouts DON'T always fire at the same time
 
-//
+// Raft中Server的三种状态
+const (
+	LEADER = iota
+	FOLLOWER
+	CANDIDATE
+)
+
+// Election的Timeout
+const (
+	ElectionTimeoutMin = 100
+	ElectionTimeoutMax = 500
+)
+
 // as each Raft peer becomes aware that successive log entries are
 // committed, the peer should send an ApplyMsg to the service (or
 // tester) on the same server, via the applyCh passed to Make().
@@ -42,6 +58,7 @@ type ApplyMsg struct {
 type LogEntry struct {
 	Command interface{} // 状态机的命令
 	Term    int         // log entry的term
+	Index   int         // log entry的index
 }
 
 //
@@ -59,13 +76,13 @@ type Raft struct {
 
 	// Persistent state on all servers
 	// TODO Update on stable storage before responding to RPCS
-	currentTerm int // server 最后看到的term
-	votedFor    int // TODO
-	log         []LogEntry
+	currentTerm int        // server已知的最新term，初始化为0，单调递增
+	votedFor    int        // 当前term中所投票的id，如果没有投票，则为null
+	log         []LogEntry // TODO: First index is 1
 
 	// Volatile state on all servers
-	commitIndex int // committed的最大的log entry index
-	lastApplied int // 应用到状态机的最大的log entry index
+	commitIndex int // committed的最大的log entry index，初始化为0，单调递增
+	lastApplied int // 应用到状态机的最大的log entry index，初始化为0，单调递增
 
 	// Volatile state on leaders
 	// TODO Reinitialized after election
@@ -73,8 +90,9 @@ type Raft struct {
 	matchIndex []int // To replicated，对每个server，已知的最高的已经复制成功的序号
 
 	// Self defined
-	isLeader bool
-	state    string // leader, follower, candidate TODO: Enum?
+	isLeader      bool        // 是否是领导者
+	role          int         // 服务器状态
+	electionTimer *time.Timer // Leader Election的定时器 FIXME: GUIDE SAYS DO NOT USE TIMER
 }
 
 // FIXME: Self-Defined
@@ -253,8 +271,61 @@ func (rf *Raft) Kill() {
 	// Your code here, if desired.
 }
 
-func (rf *Raft) Waitng() {
+func randomElectionTimeout() time.Duration {
+	// 选举超时时间，100~500ms
+	rand.Seed(time.Now().UnixNano())
+	x := rand.Intn(ElectionTimeoutMax-ElectionTimeoutMin) + ElectionTimeoutMin
+	n := time.Duration(x)
+	timeout := n * time.Millisecond
+	return timeout
+}
+
+func (rf *Raft) switchToLeader() {
+
+}
+
+func (rf *Raft) SwitchToCandidate() {
+	DPrintf("rf[%v] switch to candidate.", rf.me)
+	rf.currentTerm++
+	rf.role = CANDIDATE
+	rf.votedFor = rf.me
+}
+
+func (rf *Raft) switchToFollower() {
+
+}
+
+func (rf *Raft) getRequestVoteArgs() RequestVoteArgs {
+	args := RequestVoteArgs{
+		Term:         0,
+		CandidatedId: rf.me,
+		LastLogIndex: 0,
+		LastLogTerm:  0,
+	}
+	return args
+}
+
+func (rf *Raft) LeaderElectionLoop() {
 	// TODO:
+	DPrintf("Starting Leader Election Loop")
+	for {
+		// 等待 election timeout
+		<-rf.electionTimer.C // 表达式会被Block直到超时
+		rf.electionTimer.Reset(randomElectionTimeout())
+
+		rf.mu.Lock()
+		if rf.role == LEADER {
+			rf.mu.Unlock()
+			continue
+		}
+
+		if rf.role == FOLLOWER || rf.role == CANDIDATE {
+			rf.SwitchToCandidate()
+			rf.mu.Unlock()
+			// TODO: Issue RequestVote RPCs in parallel to each of the other servers in the cluster
+
+		}
+	}
 }
 
 //
@@ -270,16 +341,31 @@ func (rf *Raft) Waitng() {
 //
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
+	// TODO: Modify Make() to create a background goroutine that starts an election by sending out RequestVote RPC when it hasn't heard from another peer for a while
+	// 初始化 Raft Server状态
 	rf := &Raft{}
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
 
 	// Your initialization code here.
-	// TODO: Modify Make() to create a background goroutine that starts an election by sending out RequestVote RPC when it hasn't heard from another peer for a while
+	rf.currentTerm = 0
+	rf.votedFor = -1 // 用-1表示null
+
+	// 初始化log，并加入一个空的守护日志（因为log的index从1开始）
+	guideEntry := LogEntry{
+		Command: nil,
+		Term:    0,
+		Index:   0,
+	}
+	rf.log = append(rf.log, guideEntry)
+
+	// 初始化选举的计时器
+	rf.electionTimer = time.NewTimer(randomElectionTimeout())
 
 	// Sever启动时，是follower状态。 若收到来自leader或者candidate的有效PRC，就持续保持follower状态。
-	rf.state = "follower"
+	rf.role = FOLLOWER
+
 	// TODO: 等待 election timeout
 
 	// initialize from state persisted before a crash

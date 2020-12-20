@@ -105,7 +105,7 @@ type Raft struct {
 	role           int         // 服务器状态
 	electionTimer  *time.Timer // Leader Election的定时器 FIXME: GUIDE SAYS DO NOT USE TIMER\
 	heartBeatTimer *time.Timer // Heart Beat的定时器
-
+	applyCh        chan ApplyMsg
 }
 
 type AppendEntriesArgs struct {
@@ -232,8 +232,8 @@ func (rf *Raft) getRole() string {
 	case CANDIDATE:
 		role = "Cand"
 	}
-	return role + " " + rf.toStringWithoutLog()
-	//return role + " " + rf.toString()
+	//return role + " " + rf.toStringWithoutLog()
+	return role + " " + rf.toString()
 	//return role
 }
 
@@ -242,6 +242,12 @@ func min(a int, b int) int {
 		return b
 	} else {
 		return a
+	}
+}
+
+func assert(a interface{}, b interface{}, msg interface{}) {
+	if a != b {
+		panic(msg)
 	}
 }
 
@@ -324,6 +330,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// Your initialization code here.
 	rf.currentTerm = 0
 	rf.votedFor = -1 // 用-1表示null
+	rf.applyCh = applyCh
+	rf.lastApplied = 0
+	rf.commitIndex = 0
 
 	// 初始化log，并加入一个空的守护日志（因为log的index从1开始）
 	guideEntry := LogEntry{
@@ -342,6 +351,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	go rf.LeaderElectionLoop()
 	go rf.heartBeatLoop()
+	go rf.applyLoop()
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())

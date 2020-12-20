@@ -1,5 +1,7 @@
 package raft
 
+import "fmt"
+
 /*==========================================
 	Leader Election 选举函数定义
 ==========================================*/
@@ -58,12 +60,7 @@ func (rf *Raft) getLastLogIndexTerm() (lastLogIndex int, lastLogTerm int) {
 	last := len(rf.log) - 1
 	lastLogIndex = rf.log[last].Index
 	lastLogTerm = rf.log[last].Term
-
-	if last != lastLogIndex {
-		DPrintf("Server[%v](%s) %+v", rf.me, rf.getRole(), rf.log)
-		panic("The slice index should be equal to lastLogIndex")
-	}
-
+	assert(last, lastLogIndex, fmt.Sprintf("Server[%v](%s) %+v, The slice index should be equal to lastLogIndex", rf.me, rf.getRole(), rf.log))
 	return lastLogIndex, lastLogTerm
 }
 

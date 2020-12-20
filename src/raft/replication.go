@@ -1,5 +1,7 @@
 package raft
 
+import "time"
+
 /*==========================================
 	Log Entry 日志相关函数定义
 ==========================================*/
@@ -76,11 +78,6 @@ func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply)
 	rf.switchToFollower(args.Term)
 	rf.resetElectionTimer() // 收到了有效的Leader的消息，重置选举的定时器
 
-	if len(args.Entries) == 0 {
-		// heartbeats
-		return
-	}
-
 	// 考虑rf.log[args.PrevLogIndex]有没有内容
 	lastLogIndex, _ := rf.getLastLogIndexTerm()
 	if lastLogIndex < args.PrevLogIndex {
@@ -99,7 +96,8 @@ func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply)
 
 	nextIndex := args.PrevLogIndex + 1
 	DPrintf("[DEBUG] Svr[%v]:(%s) nextIndex is %v, lastLogIndex is %v", rf.me, rf.getRole(), nextIndex, lastLogIndex)
-	if lastLogIndex >= nextIndex &&
+	if len(args.Entries) > 0 &&
+		lastLogIndex >= nextIndex &&
 		rf.log[nextIndex].Term != args.Entries[0].Term {
 		// conflict ,delete the existing entry and all follow it
 		DPrintf("[DEBUG] Svr[%v]:(%s) Delete existing entry and all follow it", rf.me, rf.getRole())
@@ -107,12 +105,14 @@ func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply)
 	}
 
 	reply.Success = true
-	rf.log = append(rf.log, args.Entries...)
+	if len(args.Entries) > 0 {
+		rf.log = append(rf.log, args.Entries...)
+	}
 
 	if reply.Success && args.LeaderCommit > rf.commitIndex {
-		DPrintf("[DEBUG] Svr[%v]:(%s) Follower Update commitIndex", rf.me, rf.getRole())
 		lastLogIndex, _ := rf.getLastLogIndexTerm()
 		rf.commitIndex = min(args.LeaderCommit, lastLogIndex)
+		DPrintf("[DEBUG] Svr[%v]:(%s) Follower Update commitIndex, lastLogIndex is %v", rf.me, rf.getRole(), lastLogIndex)
 	}
 
 }
@@ -178,5 +178,27 @@ func (rf *Raft) heartBeatLoop() {
 		}
 		rf.mu.Unlock()
 		rf.sendAppendEntriesRPCToOthers()
+	}
+}
+
+func (rf *Raft) apply(index int) {
+	msg := ApplyMsg{
+		Index:       index,
+		Command:     rf.log[index].Command,
+		UseSnapshot: false,
+		Snapshot:    nil,
+	}
+	rf.applyCh <- msg
+}
+
+func (rf *Raft) applyLoop() {
+	for {
+		time.Sleep(10 * time.Millisecond)
+		rf.mu.Lock()
+		for rf.lastApplied < rf.commitIndex {
+			rf.lastApplied++
+			rf.apply(rf.lastApplied)
+		}
+		rf.mu.Unlock()
 	}
 }

@@ -160,7 +160,7 @@ func randomElectionTimeout() time.Duration {
 func (rf *Raft) resetElectionTimer() {
 	duration := randomElectionTimeout()
 	rf.electionTimer.Reset(duration)
-	DPrintf("[DEBUG] Server[%v]:(%s) Reset ElectionTimer with %v\n", rf.me, rf.getRole(), duration)
+	DPrintf("[DEBUG] Svr[%v]:(%s) Reset ElectionTimer with %v\n", rf.me, rf.getRole(), duration)
 }
 
 func getHeartBeatInterval() time.Duration {
@@ -170,7 +170,7 @@ func getHeartBeatInterval() time.Duration {
 func (rf *Raft) resetHeartBeatTimer() {
 	duration := getHeartBeatInterval()
 	rf.heartBeatTimer.Reset(duration)
-	DPrintf("[DEBUG] Server[%v]:(%s) Reset HeartBeatTimer with %v\n", rf.me, rf.getRole(), duration)
+	DPrintf("[DEBUG] Svr[%v]:(%s) Reset HeartBeatTimer with %v\n", rf.me, rf.getRole(), duration)
 }
 
 /*==========================================
@@ -181,39 +181,30 @@ func (rf *Raft) resetHeartBeatTimer() {
 // example RequestVote RPC handler.
 //
 func (rf *Raft) switchToLeader() {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-
 	rf.role = FOLLOWER
 	rf.isLeader = true
 	rf.resetElectionTimer()
 
-	DPrintf("[DEBUG] Server[%v]:(%s) switch to candidate.", rf.me, rf.getRole())
+	DPrintf("[DEBUG] Svr[%v]:(%s) switch to candidate.", rf.me, rf.getRole())
 }
 
 func (rf *Raft) SwitchToCandidate() {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-
 	rf.currentTerm++
 	rf.role = CANDIDATE
 	rf.votedFor = rf.me
 	rf.resetElectionTimer()
 
-	DPrintf("[DEBUG] Server[%v]:(%s) switch to candidate.", rf.me, rf.getRole())
+	DPrintf("[DEBUG] Svr[%v]:(%s) switch to candidate.", rf.me, rf.getRole())
 
 }
 
 func (rf *Raft) switchToFollower(term int) {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-
 	rf.role = FOLLOWER
 	rf.currentTerm = term
 	rf.votedFor = -1
-	rf.resetElectionTimer()
+	//rf.resetElectionTimer()
 
-	DPrintf("[DEBUG] Server[%v]:(%s) switch to follower.", rf.me, rf.getRole())
+	DPrintf("[DEBUG] Svr[%v]:(%s) switch to follower.", rf.me, rf.getRole())
 }
 
 func (rf *Raft) getRequestVoteArgs() RequestVoteArgs {
@@ -228,7 +219,7 @@ func (rf *Raft) getRequestVoteArgs() RequestVoteArgs {
 }
 
 func (rf *Raft) sendRequestVoteRPCToOthers() {
-	DPrintf("[DEBUG] Server[%v]:(%s) Begin sendRequestVoteRPCToOthers", rf.me, rf.getRole())
+	DPrintf("[DEBUG] Svr[%v]:(%s) Begin sendRequestVoteRPCToOthers", rf.me, rf.getRole())
 	n := len(rf.peers)
 	vote_ch := make(chan bool, n) // 接收来自各个节点的reply
 
@@ -253,7 +244,7 @@ func (rf *Raft) sendRequestVoteRPCToOthers() {
 	for {
 		vote := <-vote_ch
 		if rf.role == FOLLOWER {
-			DPrintf("[DEBUG] Server[%v]:(%s) has been a follower", rf.me, rf.getRole())
+			DPrintf("[DEBUG] Svr[%v]:(%s) has been a follower", rf.me, rf.getRole())
 			return
 		}
 		replyCounter++
@@ -271,7 +262,7 @@ func (rf *Raft) sendRequestVoteRPCToOthers() {
 		// 得到了majority投票，成为Leader
 		rf.switchToLeader()
 	} else {
-		DPrintf("[DEBUG] Server[%v]:(%s) get %v vote, Fails", rf.me, rf.getRole(), validCounter)
+		DPrintf("[DEBUG] Svr[%v]:(%s) get %v vote, Fails", rf.me, rf.getRole(), validCounter)
 	}
 
 }
@@ -285,16 +276,16 @@ func (rf *Raft) LeaderElectionLoop() {
 		rf.resetElectionTimer()
 
 		rf.mu.Lock()
-		DPrintf("[DEBUG] Server[%v]:(%s) Start Leader Election Loop", rf.me, rf.getRole())
+		DPrintf("[DEBUG] Svr[%v]:(%s) Start Leader Election Loop", rf.me, rf.getRole())
 		if rf.role == LEADER {
-			DPrintf("[DEBUG] Server[%v]:(%s) End Leader Election Loop, Leader is Server[%v]", rf.me, rf.getRole(), rf.me)
+			DPrintf("[DEBUG] Svr[%v]:(%s) End Leader Election Loop, Leader is Svr[%v]", rf.me, rf.getRole(), rf.me)
 			rf.mu.Unlock()
 			continue
 		}
 
 		if rf.role == FOLLOWER || rf.role == CANDIDATE {
-			rf.mu.Unlock()
 			rf.SwitchToCandidate()
+			rf.mu.Unlock()
 			rf.sendRequestVoteRPCToOthers()
 		}
 	}
@@ -304,15 +295,15 @@ func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here.
 	// TODO: Implement it so that servers will vote for one another
 	rf.mu.Lock()
-	DPrintf("[DEBUG] Server[%v]:(%s) Start Func RequestVote with args:%+v", rf.me, rf.getRole(), args)
+	DPrintf("[DEBUG] Svr[%v]:(%s, Term:%v) Start Func RequestVote with args:%+v", rf.me, rf.getRole(), rf.currentTerm, args)
 	defer rf.mu.Unlock()
-	defer DPrintf("[DEBUG] Server[%v]:(%s) End Func RequestVote with args:%+v, reply:%+v", rf.me, rf.getRole(), args, reply)
+	defer DPrintf("[DEBUG] Svr[%v]:(%s) End Func RequestVote with args:%+v, reply:%+v", rf.me, rf.getRole(), args, reply)
 
 	// 初始化
 	reply.VoteGranted = false
 	reply.Term = rf.currentTerm
-
 	// TODO: Return false if currentTerm > term(received)
+
 	if rf.currentTerm > args.Term {
 		return
 	}
@@ -344,7 +335,7 @@ func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 	rf.votedFor = args.CandidatedId
 	reply.VoteGranted = true
 	rf.resetElectionTimer()
-	DPrintf("[DEBUG] Server[%v]:(%s) Vote for %v", rf.me, rf.getRole(), args.CandidatedId)
+	DPrintf("[DEBUG] Svr[%v]:(%s) Vote for %v", rf.me, rf.getRole(), args.CandidatedId)
 }
 
 //
@@ -456,11 +447,11 @@ func (rf *Raft) getRole() string {
 	var role string
 	switch rf.role {
 	case LEADER:
-		role = "Leader"
+		role = "Lead"
 	case FOLLOWER:
-		role = "Follower"
+		role = "Foll"
 	case CANDIDATE:
-		role = "Candidate"
+		role = "Cand"
 	}
 	return role
 }
@@ -515,8 +506,8 @@ func (rf *Raft) Kill() {
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
 	// TODO: Modify Make() to create a background goroutine that starts an election by sending out RequestVote RPC when it hasn't heard from another peer for a while
-	DPrintf("[DEBUG] Server[%v]: Start Func Make()\n", me)
-	defer DPrintf("[DEBUG] Server[%v]: End Func Make()\n", me)
+	DPrintf("[DEBUG] Svr[%v]: Start Func Make()\n", me)
+	defer DPrintf("[DEBUG] Svr[%v]: End Func Make()\n", me)
 	// 初始化 Raft Server状态
 	rf := &Raft{}
 	rf.peers = peers

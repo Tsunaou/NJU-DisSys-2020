@@ -99,7 +99,6 @@ type Raft struct {
 	matchIndex []int // To replicated，对每个server，已知的最高的已经复制成功的序号
 
 	// Self defined
-	isLeader       bool        // 是否是领导者
 	role           int         // 服务器状态
 	electionTimer  *time.Timer // Leader Election的定时器 FIXME: GUIDE SAYS DO NOT USE TIMER\
 	heartBeatTimer *time.Timer // Heart Beat的定时器
@@ -182,7 +181,6 @@ func (rf *Raft) resetHeartBeatTimer() {
 //
 func (rf *Raft) switchToLeader() {
 	rf.role = LEADER
-	rf.isLeader = true
 	rf.resetElectionTimer()
 	rf.heartBeatTimer.Reset(0) // 马上启动心跳机制
 	DPrintf("[DEBUG] Svr[%v]:(%s) switch to leader and reset heartBeatTimer 0.", rf.me, rf.getRole())
@@ -417,9 +415,16 @@ func (rf *Raft) sendAppendEntriesRPCToPeer(slave int) {
 		success: false,
 	}
 	ok := rf.sendAppendEntries(slave, args, &reply)
+	// FIXME: 注意，这里的ok是调用成功，而不是reply的ok
 	if ok {
 		// TODO: update states according to the reply message
-
+		rf.mu.Lock()
+		if reply.Term > rf.currentTerm {
+			rf.currentTerm = reply.Term
+			rf.switchToFollower(reply.Term)
+			rf.resetElectionTimer()
+		}
+		rf.mu.Unlock()
 	}
 }
 
@@ -499,7 +504,7 @@ func (rf *Raft) GetState() (int, bool) {
 	var isleader bool
 	// Your code here.
 	term = rf.currentTerm
-	isleader = rf.isLeader
+	isleader = rf.role == LEADER
 
 	return term, isleader
 }
@@ -592,7 +597,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.heartBeatTimer = time.NewTimer(getHeartBeatInterval())
 	// Sever启动时，是follower状态。 若收到来自leader或者candidate的有效PRC，就持续保持follower状态。
 	rf.role = FOLLOWER
-	rf.isLeader = false
 	rf.switchToFollower(0)
 
 	go rf.LeaderElectionLoop()

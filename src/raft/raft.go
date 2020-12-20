@@ -108,12 +108,12 @@ type Raft struct {
 
 type AppendEntriesArgs struct {
 	// TODO:
-	Term         int   // 领导者的term
-	LeaderId     int   // 领导者的ID，
-	PrevLogIndex int   // 在append新log entry前的log index
-	PrevLogTerm  int   // 在append新log entry前的log index下的term
-	Entries      []int // 要append log entries TODO: 如果是空的用来heartbeats
-	LeaderCommit int   // 领导者的commitIndex
+	Term         int        // 领导者的term
+	LeaderId     int        // 领导者的ID，
+	PrevLogIndex int        // 在append新log entry前的log index
+	PrevLogTerm  int        // 在append新log entry前的log index下的term
+	Entries      []LogEntry // 要append log entries TODO: 如果是空的用来heartbeats
+	LeaderCommit int        // 领导者的commitIndex
 
 }
 
@@ -181,11 +181,11 @@ func (rf *Raft) resetHeartBeatTimer() {
 // example RequestVote RPC handler.
 //
 func (rf *Raft) switchToLeader() {
-	rf.role = FOLLOWER
+	rf.role = LEADER
 	rf.isLeader = true
 	rf.resetElectionTimer()
-
-	DPrintf("[DEBUG] Svr[%v]:(%s) switch to candidate.", rf.me, rf.getRole())
+	rf.heartBeatTimer.Reset(0) // 马上启动心跳机制
+	DPrintf("[DEBUG] Svr[%v]:(%s) switch to leader and reset heartBeatTimer 0.", rf.me, rf.getRole())
 }
 
 func (rf *Raft) SwitchToCandidate() {
@@ -302,7 +302,6 @@ func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 	// 初始化
 	reply.VoteGranted = false
 	reply.Term = rf.currentTerm
-	// TODO: Return false if currentTerm > term(received)
 
 	if rf.currentTerm > args.Term {
 		return
@@ -363,10 +362,44 @@ func (rf *Raft) sendRequestVote(server int, args RequestVoteArgs, reply *Request
 /*==========================================
 	Log Entry 日志相关函数定义
 ==========================================*/
+
+func (rf *Raft) getAppendLogs(index int) (prevLogIndex int, prevLogTerm int, entries []LogEntry) {
+	// TODO: to be filled
+	return 0, 0, nil
+}
+
+func (rf *Raft) getAppendEntriesArgs(slave int) AppendEntriesArgs {
+	prevLogIndex, preLogTerm, entries := rf.getAppendLogs(slave)
+	args := AppendEntriesArgs{
+		Term:         rf.currentTerm,
+		LeaderId:     rf.me,
+		PrevLogIndex: prevLogIndex,
+		PrevLogTerm:  preLogTerm,
+		Entries:      entries,
+		LeaderCommit: rf.commitIndex,
+	}
+	return args
+}
+
 // AppendEntries RPC handler.
 func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply) {
 	// TODO:
+	rf.mu.Lock()
+	DPrintf("[DEBUG] Svr[%v]:(%s, Term:%v) Start Func AppendEntries with args:%+v", rf.me, rf.getRole(), rf.currentTerm, args)
+	defer rf.mu.Unlock()
+	defer DPrintf("[DEBUG] Svr[%v]:(%s) End Func AppendEntries with args:%+v, reply:%+v", rf.me, rf.getRole(), args, reply)
 
+	// 初始化
+	reply.success = false
+	reply.Term = rf.currentTerm
+
+	if rf.currentTerm > args.Term {
+		return
+	}
+
+	rf.currentTerm = args.Term
+	rf.switchToFollower(args.Term)
+	rf.resetElectionTimer()
 }
 
 func (rf *Raft) sendAppendEntries(server int, args AppendEntriesArgs, reply *AppendEntriesReply) bool {
@@ -374,18 +407,46 @@ func (rf *Raft) sendAppendEntries(server int, args AppendEntriesArgs, reply *App
 	return ok
 }
 
+func (rf *Raft) sendAppendEntriesRPCToPeer(slave int) {
+	DPrintf("[DEBUG] Svr[%v]:(%s) sendAppendEntriesRPCToPeer send to Svr[%v]", rf.me, rf.getRole(), slave)
+	rf.mu.Lock()
+	args := rf.getAppendEntriesArgs(slave)
+	rf.mu.Unlock()
+	reply := AppendEntriesReply{
+		Term:    0,
+		success: false,
+	}
+	ok := rf.sendAppendEntries(slave, args, &reply)
+	if ok {
+		// TODO: update states according to the reply message
+
+	}
+}
+
+func (rf *Raft) sendAppendEntriesRPCToOthers() {
+	DPrintf("[DEBUG] Svr[%v]:(%s) sendAppendEntriesRPCToOthers", rf.me, rf.getRole())
+	for slave := range rf.peers {
+		// 不发送给自己
+		if slave == rf.me {
+			continue
+		} else {
+			go rf.sendAppendEntriesRPCToPeer(slave)
+		}
+	}
+}
+
 func (rf *Raft) heartBeatLoop() {
 	for {
+		<-rf.heartBeatTimer.C
+		rf.resetHeartBeatTimer()
+
 		rf.mu.Lock()
 		if rf.role != LEADER {
 			rf.mu.Unlock()
-			return
+			continue
 		}
-		// append entries to each peer except itself
-
 		rf.mu.Unlock()
-		<-rf.heartBeatTimer.C
-		rf.resetHeartBeatTimer()
+		rf.sendAppendEntriesRPCToOthers()
 	}
 }
 

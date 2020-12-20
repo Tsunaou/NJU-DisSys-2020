@@ -116,7 +116,6 @@ func (cfg *config) start1(i int) {
 	// a fresh set of outgoing ClientEnd names.
 	// so that old crashed instance's ClientEnds can't send.
 	// 新的outgoing客户端名，使得旧的crashed的客户端实例不会发送
-	// TODO：搞清楚这里的 endnames 含义
 	cfg.endnames[i] = make([]string, cfg.n)
 	for j := 0; j < cfg.n; j++ {
 		cfg.endnames[i][j] = randstring(20)

@@ -97,8 +97,7 @@ func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply)
 	nextIndex := args.PrevLogIndex + 1
 	DPrintf("[DEBUG] Svr[%v]:(%s) nextIndex is %v, lastLogIndex is %v", rf.me, rf.getRole(), nextIndex, lastLogIndex)
 	if len(args.Entries) > 0 &&
-		lastLogIndex >= nextIndex &&
-		rf.log[nextIndex].Term != args.Entries[0].Term {
+		lastLogIndex >= nextIndex {
 		// conflict ,delete the existing entry and all follow it
 		DPrintf("[DEBUG] Svr[%v]:(%s) Delete existing entry and all follow it", rf.me, rf.getRole())
 		rf.log = rf.log[0:nextIndex] // FIXME: 左取右不取
@@ -139,17 +138,32 @@ func (rf *Raft) sendAppendEntriesRPCToPeer(slave int) {
 			rf.currentTerm = reply.Term
 			rf.switchToFollower(reply.Term)
 			rf.resetElectionTimer()
-		} else {
-			if len(args.Entries) > 0 {
-				DPrintf("[DEBUG] Svr[%v] (%s) Get reply for AppendEntries from %v, reply.Term <= rf.currentTerm, reply is %+v", rf.me, rf.getRole(), slave, reply)
-				if rf.role == LEADER && reply.Success {
-					rf.matchIndex[slave] = args.PrevLogIndex + len(args.Entries)
-					rf.nextIndex[slave] = rf.matchIndex[slave] + 1
-					DPrintf("[DEBUG] Svr[%v] (%s): matchIndex[%v] is %v", rf.me, rf.getRole(), slave, rf.matchIndex[slave])
-					rf.updateCommitIndex()
+		}
+
+		if rf.role != LEADER || rf.currentTerm != args.Term {
+			rf.mu.Unlock()
+			return
+		}
+
+		if len(args.Entries) > 0 && rf.role == LEADER {
+			DPrintf("[DEBUG] Svr[%v] (%s) Get reply for AppendEntries from %v, reply.Term <= rf.currentTerm, reply is %+v", rf.me, rf.getRole(), slave, reply)
+			if reply.Success {
+				rf.matchIndex[slave] = args.PrevLogIndex + len(args.Entries)
+				rf.nextIndex[slave] = rf.matchIndex[slave] + 1
+				DPrintf("[DEBUG] Svr[%v] (%s): matchIndex[%v] is %v", rf.me, rf.getRole(), slave, rf.matchIndex[slave])
+				assert(rf.currentTerm, args.Entries[len(args.Entries)-1].Term, "")
+				rf.updateCommitIndex()
+			} else {
+				// 失败，要重试
+				DPrintf("[DEBUG] Svr[%v] (%s): append to Svr[%v]Success is False, reply is %+v", rf.me, rf.getRole(), slave, &reply)
+				prevIndex := args.PrevLogIndex
+				for prevIndex > 0 && rf.log[prevIndex].Term == args.PrevLogTerm {
+					prevIndex--
 				}
+				rf.nextIndex[slave] = prevIndex + 1
 			}
 		}
+
 		rf.mu.Unlock()
 	}
 }
@@ -159,6 +173,8 @@ func (rf *Raft) sendAppendEntriesRPCToOthers() {
 	for slave := range rf.peers {
 		// 不发送给自己
 		if slave == rf.me {
+			rf.nextIndex[slave] = len(rf.log) + 1
+			rf.matchIndex[slave] = len(rf.log)
 			continue
 		} else {
 			go rf.sendAppendEntriesRPCToPeer(slave)

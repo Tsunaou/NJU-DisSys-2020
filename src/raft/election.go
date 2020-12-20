@@ -193,12 +193,29 @@ func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 	}
 
 	// TODO: log对于投票的限制
+	lastLogIndex, lastLogTerm := rf.getLastLogIndexTerm()
+
+	if lastLogTerm > args.LastLogTerm || (args.LastLogTerm == lastLogTerm && args.LastLogIndex < lastLogIndex) {
+		// 选取限制
+		return
+	}
+
+	//if outOfDate(lastLogIndex, lastLogTerm, args.LastLogIndex, args.LastLogTerm) {
+	//	return
+	//}
 
 	rf.currentTerm = args.Term
 	rf.votedFor = args.CandidatedId
 	reply.VoteGranted = true
 	rf.resetElectionTimer()
 	DPrintf("[DEBUG] Svr[%v]:(%s) Vote for %v", rf.me, rf.getRole(), args.CandidatedId)
+}
+
+func outOfDate(follIndex int, follTerm int, candIndex int, candTerm int) bool {
+	if follTerm != candTerm {
+		return follTerm > candTerm
+	}
+	return follIndex > candIndex
 }
 
 //

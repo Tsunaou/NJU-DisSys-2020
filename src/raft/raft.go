@@ -103,6 +103,7 @@ type Raft struct {
 
 	// Self defined
 	role           int         // 服务器状态
+	leaderID       int         // Follower的Leader
 	electionTimer  *time.Timer // Leader Election的定时器 FIXME: GUIDE SAYS DO NOT USE TIMER\
 	heartBeatTimer *time.Timer // Heart Beat的定时器
 	applyCh        chan ApplyMsg
@@ -205,21 +206,25 @@ func (rf *Raft) GetState() (int, bool) {
 
 func (rf *Raft) logToString() string {
 	res := ""
-	for _, log := range rf.log {
-		res += fmt.Sprintf("{C:%v T:%v i:%v}", log.Command, log.Term, log.Index)
+	for index, log := range rf.log {
+		if index <= rf.commitIndex {
+			res += fmt.Sprintf("{C*%v T*%v i*%v}", log.Command, log.Term, log.Index)
+		} else {
+			res += fmt.Sprintf("{C:%v T:%v i:%v}", log.Command, log.Term, log.Index)
 
+		}
 	}
 	return res
 }
 
 func (rf *Raft) toString() string {
-	return fmt.Sprintf("Term:%d;log:%s;commitIndex:%v;",
-		rf.currentTerm, rf.logToString(), rf.commitIndex)
+	return fmt.Sprintf("LID: %v;Term:%d;log:%s;commitIndex:%v;",
+		rf.leaderID, rf.currentTerm, rf.logToString(), rf.commitIndex)
 }
 
 func (rf *Raft) toStringWithoutLog() string {
-	return fmt.Sprintf("Term:%d;commitIndex:%v;",
-		rf.currentTerm, rf.commitIndex)
+	return fmt.Sprintf("LID: %v;Term:%d;commitIndex:%v;",
+		rf.leaderID, rf.currentTerm, rf.commitIndex)
 }
 
 func (rf *Raft) getRole() string {
@@ -347,6 +352,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.heartBeatTimer = time.NewTimer(getHeartBeatInterval())
 	// Sever启动时，是follower状态。 若收到来自leader或者candidate的有效PRC，就持续保持follower状态。
 	rf.role = FOLLOWER
+	rf.leaderID = -1
 	rf.switchToFollower(0)
 
 	go rf.LeaderElectionLoop()

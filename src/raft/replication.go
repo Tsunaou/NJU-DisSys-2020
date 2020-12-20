@@ -104,6 +104,7 @@ func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply)
 	}
 
 	reply.Success = true
+	rf.leaderID = args.LeaderId
 	if len(args.Entries) > 0 {
 		rf.log = append(rf.log, args.Entries...)
 	}
@@ -204,6 +205,7 @@ func (rf *Raft) apply(index int) {
 		UseSnapshot: false,
 		Snapshot:    nil,
 	}
+	DPrintf("[DEBUG] Srv[%v](%s) apply log entry %+v", rf.me, rf.getRole(), rf.log[index].Command)
 	rf.applyCh <- msg
 }
 

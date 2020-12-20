@@ -12,6 +12,7 @@ import "fmt"
 
 func (rf *Raft) switchToLeader() {
 	rf.role = LEADER
+	rf.leaderID = rf.me
 	rf.resetElectionTimer()
 	rf.heartBeatTimer.Reset(0) // 马上启动心跳机制
 

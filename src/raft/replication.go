@@ -26,17 +26,24 @@ func (rf *Raft) updateCommitIndex() {
 	}
 }
 
-func (rf *Raft) getAppendLogs(index int) (prevLogIndex int, prevLogTerm int, entries []LogEntry) {
-	// TODO: to be filled
-	lastLogIndex, _ := rf.getLastLogIndexTerm()
-	if lastLogIndex >= rf.nextIndex[index] {
-		prevLogIndex = rf.nextIndex[index] - 1
-		prevLogTerm = rf.log[prevLogIndex].Term
-		res := append([]LogEntry{}, rf.log[rf.nextIndex[index]:]...)
-		return prevLogIndex, prevLogTerm, res
+func (rf *Raft) getAppendLogs(slave int) (prevLogIndex int, prevLogTerm int, entries []LogEntry) {
+	nextIndex := rf.nextIndex[slave]
+	lastLogIndex, lastLogTerm := rf.getLastLogIndexTerm()
+
+	if nextIndex <= 0 || nextIndex > lastLogIndex {
+		prevLogIndex = lastLogIndex
+		prevLogTerm = lastLogTerm
+		return
 	}
 
-	return 0, 0, nil
+	entries = append([]LogEntry{}, rf.log[nextIndex:]...)
+	prevLogIndex = nextIndex - 1
+	if prevLogIndex == 0 {
+		prevLogTerm = 0
+	} else {
+		prevLogTerm = rf.log[prevLogIndex].Term
+	}
+	return
 }
 
 func (rf *Raft) getAppendEntriesArgs(slave int) AppendEntriesArgs {
@@ -52,11 +59,40 @@ func (rf *Raft) getAppendEntriesArgs(slave int) AppendEntriesArgs {
 	return args
 }
 
+func (rf *Raft) outOfOrderAppendEntries(args AppendEntriesArgs) bool {
+	argsLastIndex := args.PrevLogIndex + len(args.Entries)
+	lastLogIndex, lastLogTerm := rf.getLastLogIndexTerm()
+	if argsLastIndex < lastLogIndex && lastLogTerm == args.Term {
+		return true
+	}
+	return false
+}
+
+func (rf *Raft) getNextIndex() int {
+	// append log entry后必须再调用一次否则会返回错误的结果
+	lastLogIndex, _ := rf.getLastLogIndexTerm()
+	nextIndex := lastLogIndex + 1
+	return nextIndex
+}
+
 // AppendEntries RPC handler.
 func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply) {
 	// TODO:
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+
+	// 初始化
+	reply.Success = false
+	reply.Term = rf.currentTerm
+
+	// 拒绝Term小于自己的节点的Append请求
+	if rf.currentTerm > args.Term {
+		// reply false if term < currentTerm
+		DPrintf("[DEBUG] Svr[%v]:(%s) Reject AppendEntries due to currentTerm > args.Term", rf.me, rf.getRole())
+		return
+	}
+
+	// 判断是否是来自leader的心跳
 	if len(args.Entries) == 0 {
 		//DPrintf("[DEBUG] Svr[%v]:(%s, Term:%v) Get Heart Beats from %v", rf.me, rf.getRole(), rf.currentTerm, args.LeaderId)
 	} else {
@@ -64,55 +100,52 @@ func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply)
 		defer DPrintf("[DEBUG] Svr[%v]:(%s) End Func AppendEntries with args:%+v, reply:%+v", rf.me, rf.getRole(), args, reply)
 	}
 
-	// 初始化
-	reply.Success = false
-	reply.Term = rf.currentTerm
-
-	if rf.currentTerm > args.Term {
-		// reply false if term < currentTerm
-		DPrintf("[DEBUG] Svr[%v]:(%s) Reject AppendEntries due to currentTerm > args.Term", rf.me, rf.getRole())
-		return
-	}
-
 	rf.currentTerm = args.Term
 	rf.switchToFollower(args.Term)
 	rf.resetElectionTimer() // 收到了有效的Leader的消息，重置选举的定时器
 
-	// 考虑rf.log[args.PrevLogIndex]有没有内容
+	// 考虑rf.log[args.PrevLogIndex]有没有内容，即上一个应该同步的位置
 	lastLogIndex, _ := rf.getLastLogIndexTerm()
-	if lastLogIndex < args.PrevLogIndex {
-		// Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
-		// 没有prevLogIndex的entry也是不包含
-		// TODO: 是否会出现空洞的情况
+
+	if args.PrevLogIndex < 0 {
+		reply.NextIndex = 1
+	} else if args.PrevLogIndex > lastLogIndex {
 		DPrintf("[DEBUG] Svr[%v]:(%s) Reject AppendEntries due to lastLogIndex < args.PrevLogIndex", rf.me, rf.getRole())
-		return
+		reply.NextIndex = rf.getNextIndex()
+	} else if args.PrevLogIndex == 0 {
+		if rf.outOfOrderAppendEntries(args) {
+			reply.NextIndex = 0
+		} else {
+			reply.Success = true
+			rf.log = append(rf.log[:1], args.Entries...)
+			reply.NextIndex = rf.getNextIndex()
+		}
+	} else if rf.log[args.PrevLogIndex].Term == args.PrevLogTerm {
+		if rf.outOfOrderAppendEntries(args) {
+			reply.NextIndex = 0
+		} else {
+			reply.Success = true
+			rf.log = append(rf.log[0:args.PrevLogIndex+1], args.Entries...) // [a:b]，左取右不取，如果有冲突就直接截断
+			reply.NextIndex = rf.getNextIndex()
+		}
+	} else {
+		// 直接后退一个term进行重试
+		DPrintf("[DEBUG] Svr[%v]:(%s) Previous log entries do not match", rf.me, rf.getRole())
+		term := rf.log[args.PrevLogIndex].Term
+		idx := args.PrevLogIndex
+		for idx > rf.commitIndex && idx > 0 && rf.log[idx].Term == term {
+			idx -= 1
+		}
+		reply.NextIndex = idx + 1
 	}
 
-	if rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
-		// Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
-		DPrintf("[DEBUG] Svr[%v]:(%s) Reject AppendEntries due to rf.log[args.PrevLogIndex].Term != args.PrevLogTerm", rf.me, rf.getRole())
-		return
-	}
-
-	nextIndex := args.PrevLogIndex + 1
-	DPrintf("[DEBUG] Svr[%v]:(%s) nextIndex is %v, lastLogIndex is %v", rf.me, rf.getRole(), nextIndex, lastLogIndex)
-	if len(args.Entries) > 0 &&
-		lastLogIndex >= nextIndex {
-		// conflict ,delete the existing entry and all follow it
-		DPrintf("[DEBUG] Svr[%v]:(%s) Delete existing entry and all follow it", rf.me, rf.getRole())
-		rf.log = rf.log[0:nextIndex] // FIXME: 左取右不取
-	}
-
-	reply.Success = true
-	rf.leaderID = args.LeaderId
-	if len(args.Entries) > 0 {
-		rf.log = append(rf.log, args.Entries...)
-	}
-
-	if reply.Success && args.LeaderCommit > rf.commitIndex {
-		lastLogIndex, _ := rf.getLastLogIndexTerm()
-		rf.commitIndex = min(args.LeaderCommit, lastLogIndex)
-		DPrintf("[DEBUG] Svr[%v]:(%s) Follower Update commitIndex, lastLogIndex is %v", rf.me, rf.getRole(), lastLogIndex)
+	if reply.Success {
+		rf.leaderID = args.LeaderId
+		if args.LeaderCommit > rf.commitIndex {
+			lastLogIndex, _ := rf.getLastLogIndexTerm()
+			rf.commitIndex = min(args.LeaderCommit, lastLogIndex)
+			DPrintf("[DEBUG] Svr[%v]:(%s) Follower Update commitIndex, lastLogIndex is %v", rf.me, rf.getRole(), lastLogIndex)
+		}
 	}
 
 }
@@ -124,6 +157,11 @@ func (rf *Raft) sendAppendEntries(server int, args AppendEntriesArgs, reply *App
 
 func (rf *Raft) sendAppendEntriesRPCToPeer(slave int) {
 	rf.mu.Lock()
+	if rf.role != LEADER {
+		//检查是否是Leader
+		rf.mu.Unlock()
+		return
+	}
 	args := rf.getAppendEntriesArgs(slave)
 	if len(args.Entries) > 0 {
 		DPrintf("[DEBUG] Svr[%v]:(%s) sendAppendEntriesRPCToPeer send to Svr[%v]", rf.me, rf.getRole(), slave)
@@ -139,6 +177,8 @@ func (rf *Raft) sendAppendEntriesRPCToPeer(slave int) {
 			rf.currentTerm = reply.Term
 			rf.switchToFollower(reply.Term)
 			rf.resetElectionTimer()
+			rf.mu.Unlock()
+			return
 		}
 
 		if rf.role != LEADER || rf.currentTerm != args.Term {
@@ -146,22 +186,21 @@ func (rf *Raft) sendAppendEntriesRPCToPeer(slave int) {
 			return
 		}
 
-		if len(args.Entries) > 0 && rf.role == LEADER {
-			DPrintf("[DEBUG] Svr[%v] (%s) Get reply for AppendEntries from %v, reply.Term <= rf.currentTerm, reply is %+v", rf.me, rf.getRole(), slave, reply)
-			if reply.Success {
-				rf.matchIndex[slave] = args.PrevLogIndex + len(args.Entries)
-				rf.nextIndex[slave] = rf.matchIndex[slave] + 1
+		DPrintf("[DEBUG] Svr[%v] (%s) Get reply for AppendEntries from %v, reply.Term <= rf.currentTerm, reply is %+v", rf.me, rf.getRole(), slave, reply)
+		if reply.Success {
+			if reply.NextIndex > rf.nextIndex[slave] {
+				rf.nextIndex[slave] = reply.NextIndex
+				rf.matchIndex[slave] = reply.NextIndex - 1
 				DPrintf("[DEBUG] Svr[%v] (%s): matchIndex[%v] is %v", rf.me, rf.getRole(), slave, rf.matchIndex[slave])
-				assert(rf.currentTerm, args.Entries[len(args.Entries)-1].Term, "")
+			}
+			if len(args.Entries) > 0 && args.Entries[len(args.Entries)-1].Term == rf.currentTerm {
 				rf.updateCommitIndex()
-			} else {
-				// 失败，要重试
-				DPrintf("[DEBUG] Svr[%v] (%s): append to Svr[%v]Success is False, reply is %+v", rf.me, rf.getRole(), slave, &reply)
-				prevIndex := args.PrevLogIndex
-				for prevIndex > 0 && rf.log[prevIndex].Term == args.PrevLogTerm {
-					prevIndex--
-				}
-				rf.nextIndex[slave] = prevIndex + 1
+			}
+		} else {
+			// 失败，要重试
+			DPrintf("[DEBUG] Svr[%v] (%s): append to Svr[%v]Success is False, reply is %+v", rf.me, rf.getRole(), slave, &reply)
+			if reply.NextIndex > 0 {
+				rf.nextIndex[slave] = reply.NextIndex
 			}
 		}
 

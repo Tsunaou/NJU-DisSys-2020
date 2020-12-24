@@ -122,8 +122,9 @@ type AppendEntriesArgs struct {
 
 type AppendEntriesReply struct {
 	// TODO:
-	Term    int  //
-	Success bool // 成功，if follower contained entry matching prevLogIndex and prevLogTerm TODO: 最后一个匹配还是有匹配然后截断
+	Term      int  //
+	Success   bool // 成功，if follower contained entry matching prevLogIndex and prevLogTerm TODO: 最后一个匹配还是有匹配然后截断
+	NextIndex int  // 下一个要append的Index，根据AppendEntries的情况来判断
 }
 
 //

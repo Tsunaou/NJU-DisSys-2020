@@ -29,7 +29,7 @@ func (rf *Raft) switchToLeader() {
 		rf.nextIndex[i] = nlog
 	}
 	rf.matchIndex[rf.me] = nlog - 1
-
+	rf.persist()
 	DPrintf("[DEBUG] Svr[%v]:(%s) switch to leader and reset heartBeatTimer 0.", rf.me, rf.getRole())
 }
 
@@ -38,7 +38,7 @@ func (rf *Raft) switchToCandidate() {
 	rf.role = CANDIDATE
 	rf.votedFor = rf.me
 	rf.resetElectionTimer()
-
+	rf.persist()
 	DPrintf("[DEBUG] Svr[%v]:(%s) switch to candidate.", rf.me, rf.getRole())
 
 }
@@ -55,6 +55,7 @@ func (rf *Raft) switchToFollower(term int) {
 	if flag {
 		DPrintf("[DEBUG] Svr[%v]:(%s) switch to follower.", rf.me, rf.getRole())
 	}
+	rf.persist()
 }
 
 func (rf *Raft) getLastLogIndexTerm() (lastLogIndex int, lastLogTerm int) {
@@ -67,6 +68,7 @@ func (rf *Raft) getLastLogIndexTerm() (lastLogIndex int, lastLogTerm int) {
 
 func (rf *Raft) getRequestVoteArgs() RequestVoteArgs {
 	rf.mu.Lock()
+	defer rf.persist()
 	defer rf.mu.Unlock()
 	lastLogIndex, lastLogTerm := rf.getLastLogIndexTerm()
 	args := RequestVoteArgs{
@@ -186,6 +188,8 @@ func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 		}
 		// 那么此时未投票
 	}
+
+	defer rf.persist()
 
 	if rf.currentTerm < args.Term {
 		rf.currentTerm = args.Term

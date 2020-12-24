@@ -18,6 +18,8 @@ package raft
 //
 
 import (
+	"bytes"
+	"encoding/gob"
 	"fmt"
 	"sync"
 )
@@ -166,6 +168,20 @@ func (rf *Raft) persist() {
 	// e.Encode(rf.yyy)
 	// data := w.Bytes()
 	// rf.persister.SaveRaftState(data)
+
+	w := new(bytes.Buffer)
+	e := gob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.log)
+	e.Encode(rf.commitIndex)
+	e.Encode(rf.lastApplied)
+	e.Encode(rf.nextIndex)
+	e.Encode(rf.matchIndex)
+	e.Encode(rf.role)
+	e.Encode(rf.leaderID)
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 //
@@ -178,6 +194,18 @@ func (rf *Raft) readPersist(data []byte) {
 	// d := gob.NewDecoder(r)
 	// d.Decode(&rf.xxx)
 	// d.Decode(&rf.yyy)
+
+	r := bytes.NewBuffer(data)
+	d := gob.NewDecoder(r)
+	d.Decode(&rf.currentTerm)
+	d.Decode(&rf.votedFor)
+	d.Decode(&rf.log)
+	d.Decode(&rf.commitIndex)
+	d.Decode(&rf.lastApplied)
+	d.Decode(&rf.nextIndex)
+	d.Decode(&rf.matchIndex)
+	d.Decode(&rf.role)
+	d.Decode(&rf.leaderID)
 }
 
 /*==========================================
@@ -294,6 +322,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		rf.log = append(rf.log, logEntry)
 		DPrintf("[Debug] Svr[%v]:(%s, Term:%v) get command %+v", rf.me, rf.getRole(), rf.currentTerm, command)
 		rf.matchIndex[rf.me] = index
+		rf.persist()
 	}
 
 	rf.mu.Unlock()
@@ -347,6 +376,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		Index:   0,
 	}
 	rf.log = append(rf.log, guideEntry)
+
+	rf.readPersist(persister.ReadRaftState())
 
 	// 初始化选举的计时器
 	rf.electionTimer = time.NewTimer(100 * time.Millisecond)

@@ -27,6 +27,7 @@ func (rf *Raft) updateCommitIndex() {
 }
 
 func (rf *Raft) getAppendLogs(slave int) (prevLogIndex int, prevLogTerm int, entries []LogEntry) {
+
 	nextIndex := rf.nextIndex[slave]
 	lastLogIndex, lastLogTerm := rf.getLastLogIndexTerm()
 
@@ -79,6 +80,7 @@ func (rf *Raft) getNextIndex() int {
 func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply) {
 	// TODO:
 	rf.mu.Lock()
+	defer rf.persist()
 	defer rf.mu.Unlock()
 
 	// 初始化
@@ -94,7 +96,7 @@ func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply)
 
 	// 判断是否是来自leader的心跳
 	if len(args.Entries) == 0 {
-		//DPrintf("[DEBUG] Svr[%v]:(%s, Term:%v) Get Heart Beats from %v", rf.me, rf.getRole(), rf.currentTerm, args.LeaderId)
+		DPrintf("[DEBUG] Svr[%v]:(%s, Term:%v) Get Heart Beats from %v", rf.me, rf.getRole(), rf.currentTerm, args.LeaderId)
 	} else {
 		DPrintf("[DEBUG] Svr[%v]:(%s, Term:%v) Start Func AppendEntries with args:%+v", rf.me, rf.getRole(), rf.currentTerm, args)
 		defer DPrintf("[DEBUG] Svr[%v]:(%s) End Func AppendEntries with args:%+v, reply:%+v", rf.me, rf.getRole(), args, reply)
@@ -196,6 +198,7 @@ func (rf *Raft) sendAppendEntriesRPCToPeer(slave int) {
 			if len(args.Entries) > 0 && args.Entries[len(args.Entries)-1].Term == rf.currentTerm {
 				rf.updateCommitIndex()
 			}
+			rf.persist()
 		} else {
 			// 失败，要重试
 			DPrintf("[DEBUG] Svr[%v] (%s): append to Svr[%v]Success is False, reply is %+v", rf.me, rf.getRole(), slave, &reply)

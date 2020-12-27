@@ -68,7 +68,6 @@ func (rf *Raft) getLastLogIndexTerm() (lastLogIndex int, lastLogTerm int) {
 
 func (rf *Raft) getRequestVoteArgs() RequestVoteArgs {
 	rf.mu.Lock()
-	defer rf.persist()
 	defer rf.mu.Unlock()
 	lastLogIndex, lastLogTerm := rf.getLastLogIndexTerm()
 	args := RequestVoteArgs{
@@ -189,11 +188,10 @@ func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 		// 那么此时未投票
 	}
 
-	defer rf.persist()
-
 	if rf.currentTerm < args.Term {
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
+		rf.persist()
 		rf.switchToFollower(args.Term)
 	}
 

@@ -174,12 +174,6 @@ func (rf *Raft) persist() {
 	e.Encode(rf.currentTerm)
 	e.Encode(rf.votedFor)
 	e.Encode(rf.log)
-	e.Encode(rf.commitIndex)
-	e.Encode(rf.lastApplied)
-	e.Encode(rf.nextIndex)
-	e.Encode(rf.matchIndex)
-	e.Encode(rf.role)
-	e.Encode(rf.leaderID)
 	data := w.Bytes()
 	rf.persister.SaveRaftState(data)
 }
@@ -200,12 +194,6 @@ func (rf *Raft) readPersist(data []byte) {
 	d.Decode(&rf.currentTerm)
 	d.Decode(&rf.votedFor)
 	d.Decode(&rf.log)
-	d.Decode(&rf.commitIndex)
-	d.Decode(&rf.lastApplied)
-	d.Decode(&rf.nextIndex)
-	d.Decode(&rf.matchIndex)
-	d.Decode(&rf.role)
-	d.Decode(&rf.leaderID)
 }
 
 /*==========================================
@@ -376,23 +364,18 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		Index:   0,
 	}
 	rf.log = append(rf.log, guideEntry)
-
+	rf.role = FOLLOWER
+	rf.leaderID = -1
 	rf.readPersist(persister.ReadRaftState())
 
 	// 初始化选举的计时器
 	rf.electionTimer = time.NewTimer(100 * time.Millisecond)
 	rf.heartBeatTimer = time.NewTimer(getHeartBeatInterval())
-	// Sever启动时，是follower状态。 若收到来自leader或者candidate的有效PRC，就持续保持follower状态。
-	rf.role = FOLLOWER
-	rf.leaderID = -1
-	rf.switchToFollower(0)
 
+	// Sever启动时，是follower状态。 若收到来自leader或者candidate的有效PRC，就持续保持follower状态。
 	go rf.LeaderElectionLoop()
 	go rf.heartBeatLoop()
 	go rf.applyLoop()
-
-	// initialize from state persisted before a crash
-	rf.readPersist(persister.ReadRaftState())
 
 	return rf
 }

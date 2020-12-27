@@ -1,29 +1,20 @@
 package raft
 
-import "time"
+import (
+	"sort"
+	"time"
+)
 
 /*==========================================
 	Log Entry 日志相关函数定义
 ==========================================*/
 
-func (rf *Raft) updateCommitIndex() {
-	// 统计是否majority matched
-	n := len(rf.peers)
-	for index := rf.commitIndex + 1; index <= len(rf.log); index++ {
-		counter := 0
-		for _, matched := range rf.matchIndex {
-			if matched >= index {
-				counter++
-			}
-			if counter > n/2 {
-				rf.commitIndex = index
-				break
-			}
-		}
-		if rf.commitIndex != index {
-			break
-		}
-	}
+func getMajoritySameIndex(matchIndex []int) int {
+	n := len(matchIndex)
+	tmp := make([]int, n)
+	copy(tmp, matchIndex)
+	sort.Sort(sort.Reverse(sort.IntSlice(tmp)))
+	return tmp[n/2]
 }
 
 func (rf *Raft) getAppendLogs(slave int) (prevLogIndex int, prevLogTerm int, entries []LogEntry) {
@@ -160,7 +151,6 @@ func (rf *Raft) sendAppendEntries(server int, args AppendEntriesArgs, reply *App
 func (rf *Raft) sendAppendEntriesRPCToPeer(slave int) {
 	rf.mu.Lock()
 	if rf.role != LEADER {
-		//检查是否是Leader
 		rf.mu.Unlock()
 		return
 	}
@@ -176,7 +166,6 @@ func (rf *Raft) sendAppendEntriesRPCToPeer(slave int) {
 		rf.mu.Lock()
 		if reply.Term > rf.currentTerm {
 			DPrintf("[DEBUG] Svr[%v] (%s) Get reply for AppendEntries from %v, reply.Term > rf.currentTerm", rf.me, rf.getRole(), slave)
-			rf.currentTerm = reply.Term
 			rf.switchToFollower(reply.Term)
 			rf.resetElectionTimer()
 			rf.mu.Unlock()
@@ -190,15 +179,15 @@ func (rf *Raft) sendAppendEntriesRPCToPeer(slave int) {
 
 		DPrintf("[DEBUG] Svr[%v] (%s) Get reply for AppendEntries from %v, reply.Term <= rf.currentTerm, reply is %+v", rf.me, rf.getRole(), slave, reply)
 		if reply.Success {
-			if reply.NextIndex > rf.nextIndex[slave] {
-				rf.nextIndex[slave] = reply.NextIndex
-				rf.matchIndex[slave] = reply.NextIndex - 1
-				DPrintf("[DEBUG] Svr[%v] (%s): matchIndex[%v] is %v", rf.me, rf.getRole(), slave, rf.matchIndex[slave])
+			lenEntry := len(args.Entries)
+			rf.matchIndex[slave] = args.PrevLogIndex + lenEntry
+			rf.nextIndex[slave] = rf.matchIndex[slave] + 1
+			DPrintf("[DEBUG] Svr[%v] (%s): matchIndex[%v] is %v", rf.me, rf.getRole(), slave, rf.matchIndex[slave])
+			majorityIndex := getMajoritySameIndex(rf.matchIndex)
+			if rf.log[majorityIndex].Term == rf.currentTerm && majorityIndex > rf.commitIndex {
+				rf.commitIndex = majorityIndex
+				DPrintf("[DEBUG] Svr[%v] (%s): Update commitIndex to %v", rf.me, rf.getRole(), rf.commitIndex)
 			}
-			if len(args.Entries) > 0 && args.Entries[len(args.Entries)-1].Term == rf.currentTerm {
-				rf.updateCommitIndex()
-			}
-			rf.persist()
 		} else {
 			// 失败，要重试
 			DPrintf("[DEBUG] Svr[%v] (%s): append to Svr[%v]Success is False, reply is %+v", rf.me, rf.getRole(), slave, &reply)
@@ -208,20 +197,6 @@ func (rf *Raft) sendAppendEntriesRPCToPeer(slave int) {
 		}
 
 		rf.mu.Unlock()
-	}
-}
-
-func (rf *Raft) sendAppendEntriesRPCToOthers() {
-	//DPrintf("[DEBUG] Svr[%v]:(%s) sendAppendEntriesRPCToOthers", rf.me, rf.getRole())
-	for slave := range rf.peers {
-		// 不发送给自己
-		if slave == rf.me {
-			rf.nextIndex[slave] = len(rf.log) + 1
-			rf.matchIndex[slave] = len(rf.log)
-			continue
-		} else {
-			go rf.sendAppendEntriesRPCToPeer(slave)
-		}
 	}
 }
 
@@ -236,7 +211,16 @@ func (rf *Raft) heartBeatLoop() {
 			continue
 		}
 		rf.mu.Unlock()
-		rf.sendAppendEntriesRPCToOthers()
+		for slave := range rf.peers {
+			// 不发送给自己
+			if slave == rf.me {
+				rf.nextIndex[slave] = len(rf.log) + 1
+				rf.matchIndex[slave] = len(rf.log)
+				continue
+			} else {
+				go rf.sendAppendEntriesRPCToPeer(slave)
+			}
+		}
 	}
 }
 

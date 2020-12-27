@@ -175,9 +175,6 @@ func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 	if rf.currentTerm > args.Term {
 		return
 	} else if rf.currentTerm < args.Term {
-		rf.currentTerm = args.Term
-		rf.votedFor = -1
-		rf.persist()
 		rf.switchToFollower(args.Term)
 	}
 
@@ -186,10 +183,17 @@ func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 
-	rf.currentTerm = args.Term
-	rf.votedFor = args.CandidatedId
-	reply.VoteGranted = true
-	rf.resetElectionTimer()
+	if rf.votedFor == args.CandidatedId {
+		reply.VoteGranted = true
+		rf.resetElectionTimer()
+		return
+	} else {
+		rf.currentTerm = args.Term
+		rf.votedFor = args.CandidatedId
+		reply.VoteGranted = true
+		rf.resetElectionTimer()
+	}
+
 	DPrintf("[DEBUG] Svr[%v]:(%s) Vote for %v", rf.me, rf.getRole(), args.CandidatedId)
 }
 

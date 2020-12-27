@@ -93,8 +93,13 @@ func (rf *Raft) sendRequestVoteRPCToOthers() {
 			// 开启新go routine，分别发送RequestVote给对应的server
 			go func(server int) {
 				reply := RequestVoteReply{}
-				rf.sendRequestVote(server, args, &reply)
-				voteCh <- reply.VoteGranted
+				ok := rf.sendRequestVote(server, args, &reply)
+				if ok {
+					voteCh <- reply.VoteGranted
+				} else {
+					voteCh <- false // 如果没有收到回复，视为不投票
+				}
+
 			}(server)
 		}
 	}
@@ -134,8 +139,6 @@ func (rf *Raft) sendRequestVoteRPCToOthers() {
 }
 
 func (rf *Raft) LeaderElectionLoop() {
-	// TODO:
-
 	for {
 		// 等待 election timeout
 		<-rf.electionTimer.C // 表达式会被Block直到超时
@@ -171,41 +174,17 @@ func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 
 	if rf.currentTerm > args.Term {
 		return
-	}
-
-	if rf.currentTerm == args.Term {
-		//在同一个term中
-		if rf.role == LEADER {
-			return
-		}
-		if rf.votedFor == args.CandidatedId {
-			// TODO: 会不会重复投票
-			reply.VoteGranted = true
-			return
-		} else if rf.votedFor != -1 {
-			return
-		}
-		// 那么此时未投票
-	}
-
-	if rf.currentTerm < args.Term {
+	} else if rf.currentTerm < args.Term {
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
 		rf.persist()
 		rf.switchToFollower(args.Term)
 	}
 
-	// TODO: log对于投票的限制
-	lastLogIndex, lastLogTerm := rf.getLastLogIndexTerm()
-
-	if lastLogTerm > args.LastLogTerm || (args.LastLogTerm == lastLogTerm && args.LastLogIndex < lastLogIndex) {
-		// 选取限制
+	// 是否可以进行投票
+	if rf.rejectVote(args) {
 		return
 	}
-
-	//if outOfDate(lastLogIndex, lastLogTerm, args.LastLogIndex, args.LastLogTerm) {
-	//	return
-	//}
 
 	rf.currentTerm = args.Term
 	rf.votedFor = args.CandidatedId
@@ -214,11 +193,19 @@ func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 	DPrintf("[DEBUG] Svr[%v]:(%s) Vote for %v", rf.me, rf.getRole(), args.CandidatedId)
 }
 
-func outOfDate(follIndex int, follTerm int, candIndex int, candTerm int) bool {
-	if follTerm != candTerm {
-		return follTerm > candTerm
+func (rf *Raft) rejectVote(args RequestVoteArgs) bool {
+	if rf.role == LEADER {
+		return true
 	}
-	return follIndex > candIndex
+	if rf.votedFor != -1 && rf.votedFor != args.CandidatedId {
+		return true
+	}
+	// $5.4.1的限制
+	lastLogIndex, lastLogTerm := rf.getLastLogIndexTerm()
+	if lastLogTerm != args.LastLogTerm {
+		return lastLogTerm > args.LastLogTerm
+	}
+	return lastLogIndex > args.LastLogIndex
 }
 
 //

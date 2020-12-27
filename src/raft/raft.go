@@ -32,10 +32,6 @@ import "time"
 // To heartbeats, need to define AppendEntries struct
 // Also need to implement AppendEntries RPC handler
 // Make sure the election timeouts DON'T always fire at the same time
-// TODO: Implement the leader and follower code to append new log entries
-// TODO: implementing Start()
-// TODO: completing the AppendEntries RPC structs, sending them, and completing the AppendEntry RPC handler
-// TODO: pass the TestBasicAgree() test, try to pass all test before “Persist”
 /*==========================================
 	Const 常量定义
 ==========================================*/
@@ -89,7 +85,6 @@ type Raft struct {
 	// state a Raft server must maintain.
 
 	// Persistent state on all servers
-	// TODO Update on stable storage before responding to RPCS
 	currentTerm int        // server已知的最新term，初始化为0，单调递增
 	votedFor    int        // 当前term中所投票的id，如果没有投票，则为null
 	log         []LogEntry // TODO: First index is 1
@@ -100,24 +95,23 @@ type Raft struct {
 
 	// Volatile state on leaders
 	// TODO Reinitialized after election
-	nextIndex  []int // To send, 对每个server，下一个要发送的log entry的序号， 初始化为 leader last log index+1 TODO: 初始化？
+	nextIndex  []int // To send, 对每个server，下一个要发送的log entry的序号， 初始化为 leader last log index+1 TODO: 初始化
 	matchIndex []int // To replicated，对每个server，已知的最高的已经复制成功的序号
 
 	// Self defined
 	role           int         // 服务器状态
 	leaderID       int         // Follower的Leader
-	electionTimer  *time.Timer // Leader Election的定时器 FIXME: GUIDE SAYS DO NOT USE TIMER\
+	electionTimer  *time.Timer // Leader Election的定时器 FIXME: GUIDE SAYS DO NOT USE TIMER
 	heartBeatTimer *time.Timer // Heart Beat的定时器
 	applyCh        chan ApplyMsg
 }
 
 type AppendEntriesArgs struct {
-	// TODO:
 	Term         int        // 领导者的term
 	LeaderId     int        // 领导者的ID，
 	PrevLogIndex int        // 在append新log entry前的log index
 	PrevLogTerm  int        // 在append新log entry前的log index下的term
-	Entries      []LogEntry // 要append log entries TODO: 如果是空的用来heartbeats
+	Entries      []LogEntry // 要append log entries
 	LeaderCommit int        // 领导者的commitIndex
 
 }
@@ -125,7 +119,7 @@ type AppendEntriesArgs struct {
 type AppendEntriesReply struct {
 	// TODO:
 	Term      int  //
-	Success   bool // 成功，if follower contained entry matching prevLogIndex and prevLogTerm TODO: 最后一个匹配还是有匹配然后截断
+	Success   bool // 成功，if follower contained entry matching prevLogIndex and prevLogTerm
 	NextIndex int  // 下一个要append的Index，根据AppendEntries的情况来判断
 }
 
@@ -199,12 +193,6 @@ func (rf *Raft) readPersist(data []byte) {
 /*==========================================
 	其他函数定义
 ==========================================*/
-
-// FIXME: Self-Defined
-// Rules for Servers
-func (rf *Raft) AllServersRules() {
-	// TODO:
-}
 
 // return currentTerm and whether this server
 // believes it is the leader.

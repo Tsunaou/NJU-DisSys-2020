@@ -100,9 +100,7 @@ func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply)
 	// 考虑rf.log[args.PrevLogIndex]有没有内容，即上一个应该同步的位置
 	lastLogIndex, _ := rf.getLastLogIndexTerm()
 
-	if args.PrevLogIndex < 0 {
-		reply.NextIndex = 1
-	} else if args.PrevLogIndex > lastLogIndex {
+	if args.PrevLogIndex > lastLogIndex {
 		DPrintf("[DEBUG] Svr[%v]:(%s) Reject AppendEntries due to lastLogIndex < args.PrevLogIndex", rf.me, rf.getRole())
 		reply.NextIndex = rf.getNextIndex()
 	} else if args.PrevLogIndex == 0 {
@@ -124,12 +122,7 @@ func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply)
 	} else {
 		// 直接后退一个term进行重试
 		DPrintf("[DEBUG] Svr[%v]:(%s) Previous log entries do not match", rf.me, rf.getRole())
-		term := rf.log[args.PrevLogIndex].Term
-		idx := args.PrevLogIndex
-		for idx > rf.commitIndex && idx > 0 && rf.log[idx].Term == term {
-			idx -= 1
-		}
-		reply.NextIndex = idx + 1
+		reply.NextIndex = BackOff
 	}
 
 	if reply.Success {
@@ -193,6 +186,13 @@ func (rf *Raft) sendAppendEntriesRPCToPeer(slave int) {
 			DPrintf("[DEBUG] Svr[%v] (%s): append to Svr[%v]Success is False, reply is %+v", rf.me, rf.getRole(), slave, &reply)
 			if reply.NextIndex > 0 {
 				rf.nextIndex[slave] = reply.NextIndex
+			} else if reply.NextIndex == BackOff {
+				// 直接后退一个term
+				prevIndex := args.PrevLogIndex
+				for prevIndex > 0 && rf.log[prevIndex].Term == args.PrevLogTerm {
+					prevIndex--
+				}
+				rf.nextIndex[slave] = prevIndex + 1
 			}
 		}
 

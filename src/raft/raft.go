@@ -47,7 +47,7 @@ const (
 const (
 	ElectionTimeoutMin = 100
 	ElectionTimeoutMax = 500
-	HeartBeatsInterval = 100
+	HeartBeatsInterval = 50
 )
 
 const (

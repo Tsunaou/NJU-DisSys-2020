@@ -51,15 +51,6 @@ func (rf *Raft) getAppendEntriesArgs(slave int) AppendEntriesArgs {
 	return args
 }
 
-func (rf *Raft) outOfOrderAppendEntries(args AppendEntriesArgs) bool {
-	argsLastIndex := args.PrevLogIndex + len(args.Entries)
-	lastLogIndex, lastLogTerm := rf.getLastLogIndexTerm()
-	if argsLastIndex < lastLogIndex && lastLogTerm == args.Term {
-		return true
-	}
-	return false
-}
-
 func (rf *Raft) getNextIndex() int {
 	// append log entry后必须再调用一次否则会返回错误的结果
 	lastLogIndex, _ := rf.getLastLogIndexTerm()
@@ -98,13 +89,12 @@ func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply)
 	rf.resetElectionTimer() // 收到了有效的Leader的消息，重置选举的定时器
 
 	// 考虑rf.log[args.PrevLogIndex]有没有内容，即上一个应该同步的位置
-	lastLogIndex, _ := rf.getLastLogIndexTerm()
-
+	lastLogIndex, lastLogTerm := rf.getLastLogIndexTerm()
 	if args.PrevLogIndex > lastLogIndex {
 		DPrintf("[DEBUG] Svr[%v]:(%s) Reject AppendEntries due to lastLogIndex < args.PrevLogIndex", rf.me, rf.getRole())
 		reply.NextIndex = rf.getNextIndex()
 	} else if args.PrevLogIndex == 0 {
-		if rf.outOfOrderAppendEntries(args) {
+		if args.PrevLogIndex+len(args.Entries) < lastLogIndex && lastLogTerm == args.Term {
 			reply.NextIndex = 0
 		} else {
 			reply.Success = true
@@ -112,13 +102,8 @@ func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply)
 			reply.NextIndex = rf.getNextIndex()
 		}
 	} else if rf.log[args.PrevLogIndex].Term == args.PrevLogTerm {
-		if rf.outOfOrderAppendEntries(args) {
-			reply.NextIndex = 0
-		} else {
-			reply.Success = true
-			rf.log = append(rf.log[0:args.PrevLogIndex+1], args.Entries...) // [a:b]，左取右不取，如果有冲突就直接截断
-			reply.NextIndex = rf.getNextIndex()
-		}
+		reply.Success = true
+		rf.log = append(rf.log[0:args.PrevLogIndex+1], args.Entries...) // [a:b]，左取右不取，如果有冲突就直接截断
 	} else {
 		// 直接后退一个term进行重试
 		DPrintf("[DEBUG] Svr[%v]:(%s) Previous log entries do not match", rf.me, rf.getRole())

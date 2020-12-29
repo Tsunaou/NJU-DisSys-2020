@@ -6,11 +6,11 @@ MF20330056 欧阳鸿荣
 
 ## 1. 综述
 
-在本次实验中，我使用Go语言在给定框架上实现了简单的Raft协议，通过实现包括节点选举、心跳机制、日志追加和持久化等内容，完成了Part1，Part2和Part3。
+在本次实验中，我使用Go语言在给定框架上实现了简单的Raft协议，通过实现包括节点选举、心跳机制、日志追加和持久化等内容，完成了Part1，Part2和Part3。项目托管在github上，地址为[NJU-DisSys-2020](https://github.com/Tsunaou/NJU-DisSys-2020)。当实验DDL过了后我将开源。
 
 ## 2. 相关定义
 
-根据Raft的[原始论文](https://www.usenix.org/system/files/conference/atc14/atc14-paper-ongaro.pdf)以及[扩展版论文](http://thesecretlivesofdata.com/raft/)，我定义了如下常量和数据结构。
+根据Raft的[原始论文](https://www.usenix.org/system/files/conference/atc14/atc14-paper-ongaro.pdf)以及[扩展版论文](https://raft.github.io/raft.pdf)，我定义了如下常量和数据结构。
 
 ### 2.1 常量定义
 
@@ -470,7 +470,7 @@ if args.PrevLogIndex > lastLogIndex {
 
 - 若reply成功：则将更新对应（发送`reply`）节点的`matchIndex, nextIndex`等信息，并根据各个节点的`matchIndex`尝试更新`commitIndex`。此时Apply Loop仍在监听`commitIndex`的更新并不断尝试追加。
 
-- 若reply失败：则根据`reply.Index`更更=新对应（发送`reply`）节点的`nextIndex`等信息，可能要后退一个Term进行尝试。
+- 若reply失败：则根据`reply.Index`更新对应（发送`reply`）节点的`nextIndex`等信息，可能要后退一个Term进行尝试。
 
   ```go
   if reply.Success {
@@ -498,7 +498,95 @@ if args.PrevLogIndex > lastLogIndex {
 
 ## 4. 实验演示
 
+在`test_test.go`中，根据是否测试Raft扩展论文中的Figure8描述的内容，样例分为2部分。
+
+在最理想的情况下，我能通过全部的17个测试样例。
+
+<div>
+    <img src="./figures/pass.png" width=100%>
+</div>
+
+但是对于TestFigure8和TestFigure8Unreliable这两个样例，我有一定概率通不过，应该是实现仍存在问题。
+
+但是对于第二部分的TestUnreliableAgree，TestReliableChurn和TestUnreliableChurn，仍然可以正常通过。
+
+### 4.1 Part 1
+
+能够成功通过Part 1中关于领导选举的2个样例
+
+- TestInitialElection
+- TestReElection
+
+<div>
+    <img src="./figures/part1.png" width=100%>
+</div>
+
+### 4.2 Part 2
+
+能够通过Part 2中关于日志追加和应用的7个样例
+
+- TestBasicAgree
+- TestFailAgree
+- TestFailNoAgree
+- TestConcurrentStarts
+- TestRejoin
+- TestBackup
+- TestCount
+
+<div>
+    <img src="./figures/part2.png" width=100%>
+</div>
+
+### 4.3 Part 3
+
+能够通过Part 3中关于持久化的3个样例
+- TestPersist1
+- TestPersist2
+- TestPersist3
+
+<div>
+    <img src="./figures/part3.png" width=100%>
+</div>
+### 4.4 Extra Part
+
+对于TestFigure8和TestFigure8Unreliable这两个样例，有一定概率通过，也有一定概率通不过。
+
+<div>
+    <img src="./figures/figure8.png" width=100%>
+</div>
+
+但其他样例，仍然可以正常通过。
+
+<div>
+    <img src="./figures/else.png" width=100%>
+</div>
 
 
 ## 5. 实验总结
+
+本次的Raft实验真的是很考验人，最终代码的实验也并不能达到完美，但是能够亲手实现一个经典且著名的分布式算法，并且学习了最近很火的Go语言，属实让我受益匪浅。以下让我来谈谈我的一些感想。
+
+自从1990年Lamport提出了Paxos算法后，Paxos算法几乎成了共识算法的代名词，无论是学校的教育，还是工业界分布式系统的设计都围绕着Paxos在进行。尽管Paxos正确性和效率已经被证明了，但是Paxos本身也存在着一些致命的问题，包括：
+
+- 可理解性太差。 
+
+- 可实现基础薄弱。 
+
+- 架构不利于现实系统的构建。 
+
+即便是对分布式算法和分布式系统有着很敏锐直觉的经验丰富的研究员，在面对Paxos算法时也感到十分棘手，对于学生而更是要付出巨大的努力才能在Paxos的世界中初窥门径。同时，Lamport的 工作主要针对的是single-decree Paxos，然而对于multi-Paxos只是做了一个梗概而略过了很多实现的细节，这导致迄今为止都没有一个被广泛认可的multi-Paxos算法(也许这也是没有取得一种共识的表现)， 现实世界中基于Paxos的系统也都在原始的理论上做了优化或者新的假设。以上问题导致Paxos在算法的描述和现实世界的鞄求中有三道巨大的鸿沟，尽管Paxos在理论上被证明是正确的，但是现实系统的实现并无法拟合理论，这便导致了一系列证明失去了意义。这也促使着这篇论文的核心成果-Raft的诞生。 
+
+在本身对Paxos算法有一定了解的基础上，在读了raft的论文后，的确是感觉到了Raft相对于Paxos的简单，但是这并不意味着Raft的实现就是简单的。实际上，哪怕是最简单的异步并发算法都很难写正确，何况是Raft这样的系统。以下便是我在实验中遇到的一些坑
+
+### 锁的使用
+
+在实验中，对于`rf`共享的变量访问往往需要加锁来保证互斥。这时候就涉及到加锁的粒度，可以函数级别加锁，也可以细粒度加锁。显然，细粒度加锁较为繁琐，但是可以获得更好地并发度。在实验中一开始我是选择函数级别加锁的，这导致很多样例都通不过。
+
+### 超时的选择
+
+在我的实现中，主要有2个时钟，一个是选举的时钟，一个是心跳的时钟。这两个时钟的超时选取都是一门很大的学问，很可以设置不好就会导致一些奇怪的bug。包括一开始我以为的程序是对的（当我使用我教研室的主机运行时），但是当我使用笔记本时，又会出现新的问题，这一方面和测试样例对于时间的要求有关，另一方面也跟每台机器运行的速度有关。正是因为分布式系统中的时钟无法完全同步，且各个机器性能不同，才需要有分布式共识算法等。当然这也给我的实现带来了很多问题。
+
+### 并发程序的Debug
+
+不得不说并发程度的Debug真的很难，一方面是问题难以准确复现，需要打印出很多log才能推测当时的运行时环境。另一方面便是当并发数增加时，日志的查看会变得很困难，最终只能选择把几乎所有内容都打印出来，一行行看来Debug。当然，在这个实验中，可以通过学习`labrpc, config`的内容来推敲出每个测试样例究竟是测试怎样的场景，然后考虑自己的程序在类似场景下会有什么问题，这样的方法显然会更有效率一些。
 

@@ -30,14 +30,14 @@ type config struct {
 	mu        sync.Mutex
 	t         *testing.T
 	net       *labrpc.Network
-	n         int   // 配置中的server数
+	n         int
 	done      int32 // tell internal threads to die
 	rafts     []*Raft
 	applyErr  []string // from apply channel readers
 	connected []bool   // whether each server is on the net
 	saved     []*Persister
 	endnames  [][]string    // the port file names each sends to
-	logs      []map[int]int // copy of each server's committed entries 每个服务器中提交的log的拷贝
+	logs      []map[int]int // copy of each server's committed entries
 }
 
 func make_config(t *testing.T, n int, unreliable bool) *config {
@@ -110,19 +110,16 @@ func (cfg *config) crash1(i int) {
 // this server. since we cannot really kill it.
 //
 func (cfg *config) start1(i int) {
-	// 如果i上的raft服务已经启动了，就先停止
 	cfg.crash1(i)
 
 	// a fresh set of outgoing ClientEnd names.
 	// so that old crashed instance's ClientEnds can't send.
-	// 新的outgoing客户端名，使得旧的crashed的客户端实例不会发送
 	cfg.endnames[i] = make([]string, cfg.n)
 	for j := 0; j < cfg.n; j++ {
 		cfg.endnames[i][j] = randstring(20)
 	}
 
 	// a fresh set of ClientEnds.
-	// 一个全新的客户端集合
 	ends := make([]*labrpc.ClientEnd, cfg.n)
 	for j := 0; j < cfg.n; j++ {
 		ends[j] = cfg.net.MakeEnd(cfg.endnames[i][j])
@@ -267,7 +264,6 @@ func (cfg *config) checkOneLeader() int {
 		for i := 0; i < cfg.n; i++ {
 			if cfg.connected[i] {
 				if t, leader := cfg.rafts[i].GetState(); leader {
-					// t：currentTerm，leader：是否时leader
 					leaders[t] = append(leaders[t], i)
 				}
 			}
@@ -405,14 +401,13 @@ func (cfg *config) one(cmd int, expectedServers int) int {
 				}
 			}
 		}
-		// index 指的是leader的index
+
 		if index != -1 {
 			// somebody claimed to be the leader and to have
 			// submitted our command; wait a while for agreement.
 			t1 := time.Now()
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := cfg.nCommitted(index)
-				fmt.Printf("[TEST] nd:%v, cmd:%v, cmd1:%v\n", nd, cmd, cmd1)
 				if nd > 0 && nd >= expectedServers {
 					// committed
 					if cmd2, ok := cmd1.(int); ok && cmd2 == cmd {

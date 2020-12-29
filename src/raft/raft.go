@@ -49,7 +49,7 @@ const (
 const (
 	ElectionTimeoutMin = 100
 	ElectionTimeoutMax = 500
-	HeartBeatsInterval = 50
+	HeartBeatsInterval = 100
 )
 
 // AppendLog失败后是否需要回退
